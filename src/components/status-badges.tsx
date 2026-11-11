@@ -7,7 +7,12 @@ type Variant = NonNullable<BadgeProps["variant"]>;
 
 const PAYMENT: Record<string, [Variant, string]> = {
   COMPLETED: ["success", "Completed"],
+  CREATED: ["neutral", "Checkout created"],
+  PAYER_ACTION_REQUIRED: ["warning", "Awaiting buyer"],
+  APPROVED: ["info", "Approved, not captured"],
   PENDING: ["warning", "Pending"],
+  DECLINED: ["danger", "Declined"],
+  VOIDED: ["neutral", "Voided"],
   FAILED: ["danger", "Failed"],
   DENIED: ["danger", "Denied"],
   REFUNDED: ["neutral", "Refunded"],
@@ -19,7 +24,8 @@ const INVENTORY: Record<string, [Variant, string]> = {
 };
 const SUPPLIER: Record<string, [Variant, string]> = {
   confirmed: ["success", "Confirmed"],
-  pending: ["warning", "Awaiting reply"],
+  pending: ["warning", "Confirmation pending"],
+  delayed: ["danger", "Delayed"],
   not_confirmed: ["danger", "Not confirmed"],
 };
 const DELIVERY: Record<string, [Variant, string]> = {
@@ -74,11 +80,31 @@ export function CheckIcon({ state }: { state: CheckState }) {
 export function DecisionBadge({ status }: { status: string | null }) {
   if (!status) return null;
   if (status === "approved") return <Badge variant="success">Action approved</Badge>;
-  if (status === "dismissed") return <Badge variant="neutral">Dismissed</Badge>;
+  if (status === "dismissed" || status === "rejected") return <Badge variant="neutral">Rejected</Badge>;
+  if (status === "resolved") return <Badge variant="success">Resolved</Badge>;
   return (
     <Badge variant="info">
       <AlertTriangle className="size-3" />
       Awaiting approval
     </Badge>
   );
+}
+
+const SOURCE: Record<string, [Variant, string]> = {
+  demo: ["warning", "DEMO"],
+  paypal_sandbox: ["info", "PayPal Sandbox"],
+  paypal_live: ["success", "PayPal Live"],
+};
+
+/** Labels where a payment came from, so demo transactions can never be mistaken for Sandbox ones. */
+export function SourceBadge({ source }: { source: string }) {
+  const [variant, label] = SOURCE[source] ?? ["neutral", source];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+export function InventoryFromStock({ available, quantity }: { available: number | null; quantity: number }) {
+  if (available === null) return <Badge variant="neutral">No stock record</Badge>;
+  if (available >= quantity) return <Badge variant="success">In stock</Badge>;
+  if (available === 0) return <Badge variant="danger">Out of stock</Badge>;
+  return <Badge variant="warning">Short {quantity - available}</Badge>;
 }

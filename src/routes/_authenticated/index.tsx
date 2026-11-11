@@ -1,29 +1,48 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, CheckCircle2, CircleDollarSign, Hourglass, Package, ShieldAlert } from "lucide-react";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  ArrowRight,
+  Boxes,
+  Brain,
+  CheckCircle2,
+  CircleDollarSign,
+  FlaskConical,
+  Hourglass,
+  Loader2,
+  Package,
+  ShieldAlert,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts";
 
 import { PageHeader } from "@/components/app-shell";
 import { OrdersTable } from "@/components/orders-table";
+import { PriorityBadge } from "@/components/status-badges";
+import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/integrations/supabase/client";
+import { startDemoSession } from "@/lib/demo.functions";
 import { PageError, PagePending } from "@/components/page-states";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import { analyzeOrder, STAGE_LABELS, type StageKey } from "@/lib/bottleneck";
+import { analyzeOrder, FULFILMENT_LABELS, isPaymentVerified, STAGE_LABELS, type StageKey } from "@/lib/bottleneck";
 import { formatMoney } from "@/lib/format";
-import { ordersQuery } from "@/lib/queries";
+import { ordersQuery, profileQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — OrderFlow AI" },
-      { name: "description", content: "See which paid orders are stuck, and why, at a glance." },
-      { property: "og:title", content: "Dashboard — OrderFlow AI" },
-      { property: "og:description", content: "See which paid orders are stuck, and why, at a glance." },
+      { title: "Your payment is complete. Is your order? — OrderFlow AI" },
+      { name: "description", content: "OrderFlow AI investigates what happens after payment and finds fulfilment bottlenecks." },
+      { property: "og:title", content: "Your payment is complete. Is your order? — OrderFlow AI" },
+      { property: "og:description", content: "OrderFlow AI investigates what happens after payment and finds fulfilment bottlenecks." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  loader: ({ context }) => context.queryClient.ensureQueryData(ordersQuery),
+  loader: ({ context }) =>
+    Promise.all([context.queryClient.ensureQueryData(ordersQuery), context.queryClient.ensureQueryData(profileQuery)]),
   pendingComponent: PagePending,
   errorComponent: PageError,
   component: Dashboard,
@@ -39,11 +58,16 @@ const pieConfig = {
 
 function Dashboard() {
   const { data: orders } = useSuspenseQuery(ordersQuery);
+  const { data: profile } = useSuspenseQuery(profileQuery);
   const analyses = orders.map((o) => ({ o, a: analyzeOrder({ ...o, amount: Number(o.amount) }) }));
 
-  const paid = analyses.filter(({ o }) => o.paypal_payment_status === "COMPLETED");
+  // Only server-verified captures count as paid.
+  const paid = analyses.filter(({ o }) => isPaymentVerified(o));
   const paidTotal = paid.reduce((s, { o }) => s + Number(o.amount), 0);
+  const paidDemo = paid.filter(({ o }) => o.payment_source === "demo").length;
+  const paidSandbox = paid.length - paidDemo;
   const awaiting = paid.filter(({ o }) => o.delivery_status !== "delivered").length;
+  const pendingReview = orders.filter((o) => o.latest_investigation_status === "pending").length;
   const atRisk = analyses.filter(({ a }) => a.overallStatus === "at_risk");
   const fulfilled = analyses.filter(({ a }) => a.overallStatus === "fulfilled").length;
 
@@ -62,7 +86,7 @@ function Dashboard() {
     {
       label: "Payments received",
       value: paid.length,
-      sub: formatMoney(paidTotal),
+      sub: `${formatMoney(paidTotal)} · ${paidDemo} demo · ${paidSandbox} Sandbox`,
       icon: CircleDollarSign,
       tone: "text-success bg-success-soft",
     },
@@ -71,11 +95,19 @@ function Dashboard() {
     { label: "Fulfilled", value: fulfilled, icon: CheckCircle2, tone: "text-success bg-success-soft" },
   ];
 
-  const topRisk = atRisk.sort((x, y) => y.a.daysWaiting - x.a.daysWaiting)[0];
+  const rank = { High: 0, Medium: 1, Low: 2 } as const;
+  const sortedRisk = [...atRisk].sort((x, y) => rank[x.a.priority] - rank[y.a.priority] || y.a.daysWaiting - x.a.daysWaiting);
+  const topRisk = sortedRisk[0];
+
+  if (orders.length === 0) return <EmptyDashboard isDemo={profile.isDemo} />;
 
   return (
     <>
-      <PageHeader eyebrow="Overview" title="Fulfilment dashboard" description="Every paid order, checked against payment, stock, supplier and delivery." />
+      <PageHeader
+        eyebrow={profile.isDemo ? "DEMO workspace · sample data" : "Overview"}
+        title="Your payment is complete. Is your order?"
+        description="OrderFlow AI investigates what happens after payment, identifies fulfilment bottlenecks and recommends what your business should do next."
+      />
 
       <section className="relative mb-8 overflow-hidden rounded-2xl bg-hero p-6 text-navy-foreground shadow-elevated sm:p-8">
         <div className="absolute inset-0 grid-glow opacity-70" />
@@ -110,10 +142,48 @@ function Dashboard() {
             </div>
             <p className="text-xs font-medium text-muted-foreground">{label}</p>
             <p className="mt-1 font-display text-3xl font-bold text-foreground tabular-nums">{value}</p>
-            {sub && <p className="mt-0.5 text-xs font-medium text-muted-foreground">{sub} collected</p>}
+            {sub && <p className="mt-0.5 text-xs font-medium text-muted-foreground">{sub}</p>}
           </div>
         ))}
       </section>
+
+      {sortedRisk.length > 0 && (
+        <section className="mb-8 rounded-xl border bg-card p-5 shadow-card">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Brain className="size-4.5 text-primary" />
+              <h3 className="text-base font-semibold">Fulfilment risks</h3>
+              {pendingReview > 0 && <Badge variant="info">{pendingReview} awaiting your approval</Badge>}
+            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/insights">
+                All AI insights <ArrowRight />
+              </Link>
+            </Button>
+          </div>
+          <ul className="grid gap-3 md:grid-cols-3">
+            {sortedRisk.slice(0, 3).map(({ o, a }) => (
+              <li key={o.id}>
+                <Link
+                  to="/orders/$orderId"
+                  params={{ orderId: o.id }}
+                  className="flex h-full flex-col gap-2 rounded-lg border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs font-semibold">{o.id}</span>
+                    <PriorityBadge priority={a.priority} />
+                  </div>
+                  <p className="text-sm font-semibold">{a.bottleneckLabel}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{a.rootCause}</p>
+                  <p className="mt-auto text-xs text-muted-foreground">
+                    Payment verified · Fulfilment {FULFILMENT_LABELS[a.fulfilmentStatus].toLowerCase()}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mb-8 grid gap-4 lg:grid-cols-5">
         <div className="rounded-xl border bg-card p-5 shadow-card lg:col-span-3">
@@ -164,6 +234,67 @@ function Dashboard() {
           </Button>
         </div>
         <OrdersTable orders={orders} />
+      </section>
+    </>
+  );
+}
+
+function EmptyDashboard({ isDemo }: { isDemo: boolean }) {
+  const startDemo = useServerFn(startDemoSession);
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function openDemo() {
+    setBusy(true);
+    try {
+      const tokens = await startDemo();
+      qc.clear();
+      const { error } = await supabase.auth.setSession(tokens);
+      if (error) throw error;
+      await router.invalidate();
+    } catch (e) {
+      toast.error("Could not open the demo", { description: e instanceof Error ? e.message : undefined });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Overview"
+        title="Your payment is complete. Is your order?"
+        description="OrderFlow AI investigates what happens after payment, identifies fulfilment bottlenecks and recommends what your business should do next."
+      />
+      <section className="relative overflow-hidden rounded-2xl bg-hero p-6 text-navy-foreground shadow-elevated sm:p-10">
+        <div className="absolute inset-0 grid-glow opacity-70" />
+        <div className="relative max-w-2xl">
+          <p className="text-xs font-semibold tracking-[0.14em] text-navy-muted uppercase">No orders yet</p>
+          <h2 className="mt-2 text-xl font-bold sm:text-2xl">Payment received does not always mean order fulfilled.</h2>
+          <p className="mt-2 text-sm text-navy-muted">
+            Add a product with its stock and supplier, then create an order and send it to PayPal Sandbox. OrderFlow AI
+            will check payment, stock, supplier and delivery for you.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Button asChild variant="secondary" size="lg">
+              <Link to="/inventory">
+                <Boxes /> Add your first product
+              </Link>
+            </Button>
+            {!isDemo && (
+              <Button size="lg" variant="outline" className="border-navy-foreground/30 bg-transparent text-navy-foreground hover:bg-navy-foreground/10 hover:text-navy-foreground" onClick={openDemo} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <FlaskConical />}
+                Explore the DEMO workspace instead
+              </Button>
+            )}
+          </div>
+          {!isDemo && (
+            <p className="mt-3 text-xs text-navy-muted">
+              The demo switches you to a separate sample account. Nothing is added to your business.
+            </p>
+          )}
+        </div>
       </section>
     </>
   );

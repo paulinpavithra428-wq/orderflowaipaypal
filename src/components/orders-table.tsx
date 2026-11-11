@@ -4,9 +4,10 @@ import { Sparkles } from "lucide-react";
 import {
   DecisionBadge,
   DeliveryBadge,
-  InventoryBadge,
+  InventoryFromStock,
   OverallBadge,
   PaymentBadge,
+  SourceBadge,
   SupplierBadge,
 } from "@/components/status-badges";
 import { Button } from "@/components/ui/button";
@@ -14,11 +15,11 @@ import { analyzeOrder } from "@/lib/bottleneck";
 import { formatMoney } from "@/lib/format";
 import type { OrderWithLatest } from "@/lib/orders.functions";
 
-export function OrdersTable({ orders }: { orders: OrderWithLatest[] }) {
+export function OrdersTable({ orders, emptyText }: { orders: OrderWithLatest[]; emptyText?: string }) {
   if (orders.length === 0) {
     return (
       <div className="rounded-xl border border-dashed bg-card p-10 text-center text-sm text-muted-foreground">
-        No orders match this view.
+        {emptyText ?? "No orders match this view."}
       </div>
     );
   }
@@ -57,10 +58,13 @@ export function OrdersTable({ orders }: { orders: OrderWithLatest[] }) {
                     </div>
                   </td>
                   <td className="px-2.5 py-3">
-                    <PaymentBadge dot={false} value={o.paypal_payment_status} />
+                    <div className="flex flex-col items-start gap-1">
+                      <PaymentBadge dot={false} value={o.paypal_payment_status} />
+                      <SourceBadge source={o.payment_source} />
+                    </div>
                   </td>
                   <td className="px-2.5 py-3">
-                    <InventoryBadge dot={false} value={o.inventory_status} />
+                    <InventoryFromStock available={o.available} quantity={o.quantity} />
                   </td>
                   <td className="px-2.5 py-3">
                     <SupplierBadge dot={false} value={o.supplier_status} />

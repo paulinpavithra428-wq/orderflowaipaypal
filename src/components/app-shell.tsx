@@ -1,14 +1,18 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Activity, LayoutDashboard, LogOut, Menu, PackageSearch, Settings2, Sparkles, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Activity, Boxes, Brain, LayoutDashboard, LogOut, Menu, PackageSearch, Settings2, Sparkles, Truck, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { supabase } from "@/integrations/supabase/client";
+import { profileQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/orders", label: "Orders", icon: PackageSearch },
+  { to: "/insights", label: "AI insights", icon: Brain },
+  { to: "/inventory", label: "Inventory", icon: Boxes },
+  { to: "/suppliers", label: "Suppliers", icon: Truck },
   { to: "/activity", label: "Activity log", icon: Activity },
   { to: "/settings", label: "PayPal settings", icon: Settings2 },
 ] as const;
@@ -68,9 +72,23 @@ function SignOutButton({ onDone }: { onDone?: () => void }) {
   );
 }
 
+function WorkspaceTag() {
+  const { data } = useQuery(profileQuery);
+  if (!data) return null;
+  return (
+    <div className="rounded-lg border border-sidebar-border px-3 py-2 text-xs">
+      <p className="truncate font-semibold text-sidebar-accent-foreground">{data.businessName}</p>
+      <p className={data.isDemo ? "font-semibold text-warning" : "text-sidebar-foreground"}>
+        {data.isDemo ? "DEMO workspace · sample data" : "Your business workspace"}
+      </p>
+    </div>
+  );
+}
+
 function SidebarFooter() {
   return (
     <div className="flex flex-col gap-3">
+      <WorkspaceTag />
       <SignOutButton />
       <SidebarNote />
     </div>

@@ -1,15 +1,25 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 import { analyzeOrder } from "@/lib/bottleneck";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { getPaypalAccessToken, getPaypalConfig, missingPaypalSecrets } from "@/lib/paypal.server";
+import {
+  approveLink,
+  createPaypalOrder,
+  getPaypalAccessToken,
+  getPaypalConfig,
+  missingPaypalSecrets,
+  PaypalError,
+  syncPaymentFromPaypal,
+} from "@/lib/paypal.server";
 import {
   AiUnavailableError,
   fallbackRecommendation,
   generateRecommendation,
 } from "@/lib/ai/recommend.server";
-import type { Tables } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database, Tables } from "@/integrations/supabase/types";
 
 export type Order = Tables<"orders">;
 export type Investigation = Tables<"investigations">;
@@ -191,7 +201,8 @@ const decisionSchema = z.discriminatedUnion("action", [
     message: z.string().max(4000).nullable(),
   }),
   z.object({ action: z.literal("edit"), investigationId: z.string().uuid(), message: z.string().min(1).max(4000) }),
-  z.object({ action: z.literal("dismiss"), investigationId: z.string().uuid() }),
+  z.object({ action: z.literal("reject"), investigationId: z.string().uuid(), note: z.string().max(1000).optional() }),
+  z.object({ action: z.literal("resolve"), investigationId: z.string().uuid(), note: z.string().max(1000).optional() }),
 ]);
 
 export const decideInvestigation = createServerFn({ method: "POST" })
@@ -205,7 +216,13 @@ export const decideInvestigation = createServerFn({ method: "POST" })
       .eq("id", data.investigationId)
       .maybeSingle();
     if (error || !inv) throw new Error("Recommendation not found.");
-    if (inv.status !== "pending") throw new Error("This recommendation has already been decided.");
+    if (data.action === "resolve") {
+      if (inv.status === "resolved" || inv.status === "rejected" || inv.status === "dismissed") {
+        throw new Error("This issue is already closed.");
+      }
+    } else if (inv.status !== "pending") {
+      throw new Error("This recommendation has already been decided.");
+    }
 
     const log = (action_type: string, description: string, details: Record<string, unknown>) =>
       db.from("activity_log").insert({
@@ -245,16 +262,27 @@ export const decideInvestigation = createServerFn({ method: "POST" })
       return { ok: true };
     }
 
+    if (data.action === "resolve") {
+      const { error: e } = await db
+        .from("investigations")
+        .update({ status: "resolved", resolved_at: now, decided_at: inv.decided_at ?? now, decision_note: data.note ?? null })
+        .eq("id", inv.id);
+      if (e) throw new Error("Could not mark the issue resolved.");
+      await log("issue_resolved", `Owner marked the ${inv.bottleneck_label.toLowerCase()} issue on ${inv.order_id} as resolved.`, {
+        note: data.note ?? null,
+        order_status_changed: false,
+      });
+      return { ok: true };
+    }
+
     const { error: e } = await db
       .from("investigations")
-      .update({ status: "dismissed", decided_at: now })
+      .update({ status: "rejected", decided_at: now, decision_note: data.note ?? null })
       .eq("id", inv.id);
-    if (e) throw new Error("Could not dismiss the recommendation.");
-    await log(
-      "recommendation_dismissed",
-      `Owner dismissed the recommendation for ${inv.order_id} (${inv.bottleneck_label}).`,
-      {},
-    );
+    if (e) throw new Error("Could not reject the recommendation.");
+    await log("recommendation_rejected", `Owner rejected the recommendation for ${inv.order_id} (${inv.bottleneck_label}).`, {
+      note: data.note ?? null,
+    });
     return { ok: true };
   });
 
@@ -280,26 +308,111 @@ export const getPaypalSettings = createServerFn({ method: "GET" })
     return {
       configured: Boolean(config),
       environment: config?.environment ?? "sandbox",
-      clientIdHint: config ? `••••${config.clientId.slice(-4)}` : null,
       missingSecrets: missingPaypalSecrets(),
+      webhookConfigured: Boolean(process.env["PAYPAL_WEBHOOK_ID"]),
     };
   });
 
+/** Real OAuth client-credentials request. "connected" is only returned when PayPal issues a token. */
 export const testPaypalConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
     const missing = missingPaypalSecrets();
     const config = getPaypalConfig();
+    const checkedAt = new Date().toISOString();
     if (!config) {
       return {
-        ok: false,
-        message: `PayPal is not connected. Missing secret${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. Add ${missing.length === 1 ? "it" : "them"} in Project Settings → Secrets.`,
+        state: "disconnected" as const,
+        message: `Missing secret${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. Add ${missing.length === 1 ? "it" : "them"} under Project Settings → Secrets with exactly ${missing.length === 1 ? "this name" : "these names"}.`,
+        checkedAt,
       };
     }
     try {
-      await getPaypalAccessToken(config);
-      return { ok: true, message: `Connected to PayPal ${config.environment === "live" ? "Live" : "Sandbox"}.` };
+      const { appId } = await getPaypalAccessToken(config);
+      return {
+        state: "connected" as const,
+        message: `PayPal ${config.environment === "live" ? "Live" : "Sandbox"} issued an OAuth access token${appId ? ` for app ${appId}` : ""}.`,
+        checkedAt,
+      };
     } catch (e) {
-      return { ok: false, message: e instanceof Error ? e.message : "Could not reach PayPal." };
+      return { state: "failed" as const, message: e instanceof Error ? e.message : "Could not reach PayPal.", checkedAt };
+    }
+  });
+
+async function loadAccessibleOrder(db: SupabaseClient<Database>, orderId: string) {
+  const { data, error } = await db.from("orders").select("*").eq("id", orderId).maybeSingle();
+  if (error || !data) throw new Error("Order not found.");
+  return data as Order;
+}
+
+/** Merchant-initiated: creates a PayPal Sandbox checkout for an unpaid order. No money moves until the buyer approves. */
+export const createPaypalCheckout = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => orderIdSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const order = await loadAccessibleOrder(context.supabase, data.orderId);
+    if (order.payment_source === "demo") throw new Error("Demo orders use simulated payments and cannot be sent to PayPal.");
+    if (order.payment_verified_at) throw new Error("This order's payment is already verified.");
+    const config = getPaypalConfig();
+    if (!config) throw new Error(`PayPal is not connected. Missing: ${missingPaypalSecrets().join(", ")}.`);
+    const origin = new URL(getRequest().url).origin;
+    try {
+      const pp = await createPaypalOrder(config, {
+        orderId: order.id,
+        amount: Number(order.amount),
+        currency: order.currency,
+        description: `${order.quantity} × ${order.product}`,
+        returnUrl: `${origin}/paypal/return`,
+        cancelUrl: `${origin}/paypal/return?cancelled=1`,
+      });
+      const link = approveLink(pp);
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { error } = await supabaseAdmin
+        .from("orders")
+        .update({ paypal_order_id: pp.id, paypal_payment_status: pp.status, payment_verified_at: null, payment_verified_amount: null })
+        .eq("id", order.id);
+      if (error) throw new Error("Could not save the PayPal order.");
+      await context.supabase.from("activity_log").insert({
+        order_id: order.id,
+        merchant_id: context.userId,
+        action_type: "paypal_checkout_created",
+        description: `Owner created a PayPal Sandbox checkout for ${order.id} (PayPal order ${pp.id}).`,
+        details: { paypal_order_id: pp.id, amount: Number(order.amount) },
+      });
+      return { approveUrl: link, paypalOrderId: pp.id };
+    } catch (e) {
+      if (e instanceof PaypalError) throw new Error(`PayPal: ${e.message}`);
+      throw e;
+    }
+  });
+
+/** Re-reads the PayPal order server-side, captures it if the buyer approved, and stores the verified result. */
+export const refreshPaypalPayment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => orderIdSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const order = await loadAccessibleOrder(context.supabase, data.orderId);
+    if (!order.paypal_order_id) throw new Error("No PayPal checkout exists for this order yet.");
+    const config = getPaypalConfig();
+    if (!config) throw new Error(`PayPal is not connected. Missing: ${missingPaypalSecrets().join(", ")}.`);
+    try {
+      const result = await syncPaymentFromPaypal(
+        config,
+        { ...order, paypal_order_id: order.paypal_order_id },
+        { capture: true },
+      );
+      await context.supabase.from("activity_log").insert({
+        order_id: order.id,
+        merchant_id: context.userId,
+        action_type: result.verified ? "payment_verified" : "payment_check",
+        description: result.verified
+          ? `PayPal Sandbox payment verified for ${order.id} (capture ${result.captureId}).`
+          : `PayPal check for ${order.id}: ${result.reason}`,
+        details: { status: result.status, capture_id: result.captureId },
+      });
+      return result;
+    } catch (e) {
+      if (e instanceof PaypalError) throw new Error(`PayPal: ${e.message}`);
+      throw e;
     }
   });

@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Loader2, Sparkles } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { FlaskConical, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { lovable } from "@/integrations/lovable/index";
 import { supabase } from "@/integrations/supabase/client";
+import { startDemoSession } from "@/lib/demo.functions";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -42,6 +44,22 @@ function AuthPage() {
   const [businessName, setBusinessName] = useState("");
   const [busy, setBusy] = useState(false);
   const [checkEmail, setCheckEmail] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const startDemo = useServerFn(startDemoSession);
+
+  async function tryDemo() {
+    setDemoBusy(true);
+    try {
+      const tokens = await startDemo();
+      const { error } = await supabase.auth.setSession(tokens);
+      if (error) throw error;
+      navigate({ to: "/", replace: true });
+    } catch (e) {
+      toast.error("Could not open the demo", { description: e instanceof Error ? e.message : undefined });
+    } finally {
+      setDemoBusy(false);
+    }
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -125,7 +143,19 @@ function AuthPage() {
                 {mode === "signin" ? "Sign in to your OrderFlow AI workspace." : "Start tracking your order bottlenecks."}
               </p>
 
-              <Button type="button" variant="google" className="mt-6 h-10 w-full" onClick={signInWithGoogle}>
+              <div className="mt-6 rounded-xl border border-warning/30 bg-warning-soft p-4">
+                <p className="text-sm font-semibold text-warning-foreground">Judging the hackathon?</p>
+                <p className="mt-0.5 text-xs text-warning-foreground/80">
+                  Open a shared DEMO workspace with clearly labelled sample orders, stock and suppliers. No real
+                  merchant data.
+                </p>
+                <Button type="button" variant="secondary" className="mt-3 h-10 w-full" onClick={tryDemo} disabled={demoBusy}>
+                  {demoBusy ? <Loader2 className="animate-spin" /> : <FlaskConical />}
+                  Try Demo
+                </Button>
+              </div>
+
+              <Button type="button" variant="google" className="mt-5 h-10 w-full" onClick={signInWithGoogle}>
                 <GoogleLogo />
                 Continue with Google
               </Button>
