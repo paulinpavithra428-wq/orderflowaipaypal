@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Boxes, Brain, LayoutDashboard, LogOut, Menu, PackageSearch, Settings2, Sparkles, Truck, X } from "lucide-react";
+import { Activity, LayoutDashboard, LogOut, Menu, PackageSearch, Settings2, Sparkles, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -10,9 +10,6 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/orders", label: "Orders", icon: PackageSearch },
-  { to: "/insights", label: "AI insights", icon: Brain },
-  { to: "/inventory", label: "Inventory", icon: Boxes },
-  { to: "/suppliers", label: "Suppliers", icon: Truck },
   { to: "/activity", label: "Activity log", icon: Activity },
   { to: "/settings", label: "PayPal settings", icon: Settings2 },
 ] as const;

@@ -40,7 +40,7 @@ function SettingsPage() {
   const test = useServerFn(testPaypalConnection);
   const mutation = useMutation({
     mutationFn: () => test(),
-    onSuccess: (r) => (r.ok ? toast.success(r.message) : toast.warning(r.message)),
+    onSuccess: (r) => (r.state === "connected" ? toast.success(r.message) : toast.warning(r.message)),
     onError: () => toast.error("Could not test the connection."),
   });
 
@@ -67,7 +67,7 @@ function SettingsPage() {
               </div>
             </div>
             {settings.configured ? (
-              <Badge variant="success">Credentials saved {settings.clientIdHint}</Badge>
+              <Badge variant="success">Credentials saved</Badge>
             ) : (
               <Badge variant="warning">Not connected</Badge>
             )}

@@ -156,8 +156,8 @@ function Dashboard() {
               {pendingReview > 0 && <Badge variant="info">{pendingReview} awaiting your approval</Badge>}
             </div>
             <Button asChild variant="ghost" size="sm">
-              <Link to="/insights">
-                All AI insights <ArrowRight />
+              <Link to="/orders">
+                All orders <ArrowRight />
               </Link>
             </Button>
           </div>
@@ -278,8 +278,8 @@ function EmptyDashboard({ isDemo }: { isDemo: boolean }) {
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Button asChild variant="secondary" size="lg">
-              <Link to="/inventory">
-                <Boxes /> Add your first product
+              <Link to="/orders">
+                <Boxes /> Go to orders
               </Link>
             </Button>
             {!isDemo && (

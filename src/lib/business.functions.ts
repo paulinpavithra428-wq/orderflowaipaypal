@@ -134,7 +134,7 @@ export const updateStock = createServerFn({ method: "POST" })
     await context.supabase.from("activity_log").insert({
       merchant_id: context.userId,
       action_type: "stock_updated",
-      description: `Owner set stock for ${rows[0].name} to ${data.onHand}.`,
+      description: `Owner set stock for ${rows[0]?.name ?? "a product"} to ${data.onHand}.`,
       details: { product_id: data.productId, on_hand: data.onHand },
     });
     return { ok: true };
