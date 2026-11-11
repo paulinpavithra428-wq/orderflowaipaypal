@@ -8,6 +8,13 @@
       "when": 1794328980900,
       "tag": "0000_orderflow_core",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794419390537,
+      "tag": "0001_merchant_accounts_inventory_paypal",
+      "breakpoints": true
     }
   ]
 }
