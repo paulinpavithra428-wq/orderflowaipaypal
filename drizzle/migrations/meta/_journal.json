@@ -15,6 +15,13 @@
       "when": 1794419390537,
       "tag": "0001_merchant_accounts_inventory_paypal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794420007772,
+      "tag": "0002_lock_profile_demo_flag",
+      "breakpoints": true
     }
   ]
 }

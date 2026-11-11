@@ -11,7 +11,7 @@ import { analyzeOrder, OVERALL_LABELS, type OverallStatus } from "@/lib/bottlene
 import { ordersQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/orders/")({
+export const Route = createFileRoute("/_authenticated/orders/")({
   head: () => ({
     meta: [
       { title: "Orders — OrderFlow AI" },

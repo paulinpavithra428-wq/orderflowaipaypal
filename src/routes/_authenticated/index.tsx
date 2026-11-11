@@ -12,7 +12,7 @@ import { analyzeOrder, STAGE_LABELS, type StageKey } from "@/lib/bottleneck";
 import { formatMoney } from "@/lib/format";
 import { ordersQuery } from "@/lib/queries";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
       { title: "Dashboard — OrderFlow AI" },

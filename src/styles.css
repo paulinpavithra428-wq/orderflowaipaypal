@@ -201,3 +201,15 @@
 @utility animate-scan {
   animation: scan 1.6s ease-in-out infinite;
 }
+
+/* Google sign-in button: Google's light theme per its branding guidelines. */
+@utility btn-google {
+  background-color: #ffffff;
+  color: #1f1f1f;
+  border: 1px solid #747775;
+  padding-inline: 12px;
+  gap: 10px;
+  &:hover {
+    background-color: #f8f9fa;
+  }
+}

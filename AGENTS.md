@@ -28,3 +28,8 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+
+- All app pages except `/auth` live under `src/routes/_authenticated/`, and every server function in `src/lib/orders.functions.ts` uses `requireSupabaseAuth` with `context.supabase`, because database access rules only let signed-in merchants (and the demo account) see their own data.
+- Payment status shown in the app comes from the stored, server-verified PayPal result on the order row, never from browser input, because only the server may write payment columns.

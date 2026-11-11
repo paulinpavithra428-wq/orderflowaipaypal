@@ -13,7 +13,7 @@ import { formatMoney } from "@/lib/format";
 import { testPaypalConnection } from "@/lib/orders.functions";
 import { ordersQuery, paypalSettingsQuery } from "@/lib/queries";
 
-export const Route = createFileRoute("/settings")({
+export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
       { title: "PayPal settings — OrderFlow AI" },
@@ -69,14 +69,14 @@ function SettingsPage() {
             {settings.configured ? (
               <Badge variant="success">Credentials saved {settings.clientIdHint}</Badge>
             ) : (
-              <Badge variant="warning">Demo mode</Badge>
+              <Badge variant="warning">Not connected</Badge>
             )}
           </div>
 
           <p className="mt-5 text-sm text-muted-foreground">
             {settings.configured
               ? "Your PayPal credentials are stored securely on the server. Investigations look up each order's capture by its transaction ID; if a transaction isn't found, the demo record is shown and clearly labelled."
-              : "No PayPal credentials are connected, so the app uses clearly labelled demo transactions. Everything else — checks, AI recommendations and approvals — works the same."}
+              : `PayPal is not connected. Missing secret${settings.missingSecrets.length === 1 ? "" : "s"}: ${settings.missingSecrets.join(", ")} — add ${settings.missingSecrets.length === 1 ? "it" : "them"} in Project Settings → Secrets. Sample orders use clearly labelled demo transactions until then.`}
           </p>
 
           <div className="mt-5 flex flex-wrap gap-2">

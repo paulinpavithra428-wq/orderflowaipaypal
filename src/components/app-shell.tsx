@@ -1,7 +1,9 @@
-import { Link } from "@tanstack/react-router";
-import { Activity, LayoutDashboard, Menu, PackageSearch, Settings2, Sparkles, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Activity, LayoutDashboard, LogOut, Menu, PackageSearch, Settings2, Sparkles, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -44,7 +46,38 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+function SignOutButton({ onDone }: { onDone?: () => void }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  async function handleSignOut() {
+    onDone?.();
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/auth", replace: true });
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleSignOut}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <LogOut className="size-4" />
+      Sign out
+    </button>
+  );
+}
+
 function SidebarFooter() {
+  return (
+    <div className="flex flex-col gap-3">
+      <SignOutButton />
+      <SidebarNote />
+    </div>
+  );
+}
+
+function SidebarNote() {
   return (
     <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/60 p-4 text-xs leading-relaxed text-sidebar-foreground">
       <p className="font-semibold text-sidebar-accent-foreground">Owner approval on</p>
@@ -83,6 +116,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <NavLinks onNavigate={() => setOpen(false)} />
+        <div className="mt-2 border-t border-sidebar-border pt-2">
+          <SignOutButton onDone={() => setOpen(false)} />
+        </div>
       </div>
 
       <main className="lg:pl-64">

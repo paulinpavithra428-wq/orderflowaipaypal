@@ -8,7 +8,7 @@ import { formatDateTime } from "@/lib/format";
 import { activityQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/activity")({
+export const Route = createFileRoute("/_authenticated/activity")({
   head: () => ({
     meta: [
       { title: "Activity log — OrderFlow AI" },

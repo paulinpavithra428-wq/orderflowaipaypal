@@ -27,7 +27,7 @@ import { decideInvestigation, runInvestigation, type Investigation } from "@/lib
 import { orderDetailQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/orders/$orderId")({
+export const Route = createFileRoute("/_authenticated/orders/$orderId")({
   head: ({ params }) => ({
     meta: [
       { title: `Investigate ${params.orderId} — OrderFlow AI` },
